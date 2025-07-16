@@ -1,9 +1,7 @@
-# Databricks
-Code I made for basic data architecture work for past clients.
-
-----------------Bronze Layer-------------------------------- 
 import re
-from pyspark.sql.functions import current_timestamp, lit
+from pyspark.sql.functions import current_timestamp, lit, when, avg, count, round, current_timestamp as ct
+
+# ---------------- Bronze Layer ----------------
 
 # Step 1: Load raw table
 df_raw = spark.table('ai_job_trends_dataset')
@@ -18,7 +16,7 @@ df_bronze = (df_raw
 def clean_column_names(df):
     def clean(name):
         name = name.lower()
-        # Replace any character not a-z, 0-9, underscore with _ using Regex
+        # Replace any character not a-z, 0-9, underscore with _
         name = re.sub(r"[^a-z0-9_]", "_", name)
         # Collapse multiple underscores
         name = re.sub(r"_+", "_", name)
@@ -34,10 +32,9 @@ df_bronze_cleaned = clean_column_names(df_bronze)
 # Step 5: Write the cleaned DataFrame as a Delta table
 df_bronze_cleaned.write.format("delta").mode("overwrite").saveAsTable("ai_jobs_data_bronze")
 
-# Step 6: Display the cleaned data
-display(df_bronze_cleaned)
+# ---------------- Silver Layer ----------------
 
--------------------Silver Layer----------------------------
+# Load Bronze table
 df_bronze = spark.table("ai_jobs_data_bronze")
 
 # Remove duplicates
@@ -46,20 +43,19 @@ df_silver = df_bronze.dropDuplicates()
 # Fill missing values or filter
 df_silver = df_silver.na.fill({'median_salary_usd': 0})
 
-
-
 # Flag rows with errors
-from pyspark.sql.functions import when
-df_silver = df_silver.withColumn("is_valid", when(df_silver["median_salary_usd"] > 0, True).otherwise(False))
+df_silver = df_silver.withColumn(
+    "is_valid",
+    when(df_silver["median_salary_usd"] > 0, True).otherwise(False)
+)
 
 # Write Silver layer
 df_silver.write.format("delta").mode("overwrite").saveAsTable("ai_jobs_data_silver")
 
--------------------Gold Layer-----------------------------
+# ---------------- Gold Layer ----------------
+
 # Load Silver table
 df_silver = spark.table("ai_jobs_data_silver")
-
-from pyspark.sql.functions import avg, count, round, current_timestamp, lit
 
 # Aggregate average median salary and job count by industry and job status
 df_gold = (
